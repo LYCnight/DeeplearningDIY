@@ -18,6 +18,41 @@ vocab = {
     'She': 13,
 }
 
+# 假设我们有两个词汇表：中文和英文的词汇表
+chinese_vocab = {
+    '<PAD>': 0,
+    '<START>': 1,
+    '<END>': 2,
+    '<Unknown>': 3,
+    '你好': 4,
+    '我': 5,
+    '爱': 6,
+    '编程': 7,
+    '她': 8,
+    '今天': 9,
+    '很': 10,
+    '开心': 11,
+    '世界': 12,
+    '和平': 13
+}
+
+english_vocab = {
+    '<PAD>': 0,
+    '<START>': 1,
+    '<END>': 2,
+    '<Unknown>': 3,
+    'hello': 4,
+    'I': 5,
+    'love': 6,
+    'programming': 7,
+    'She': 8,
+    'is': 9,
+    'happy': 10,
+    'today': 11,
+    'world': 12,
+    'peace': 13
+}
+
 def text_to_indices(text, vocab):
     """
     将文本转换为词汇表中的索引序列，未知的词汇用 '<Unknown>' 表示

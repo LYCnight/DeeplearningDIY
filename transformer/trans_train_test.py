@@ -65,14 +65,9 @@ def prepare_data_for_training(training_data, chinese_vocab, english_vocab):
 
     return encoder_inputs, decoder_inputs, chinese_seq_len, english_seq_len
 
-def train(encoder, decoder, num_epochs=10, lr=0.001):    
+def train(model, num_epochs=10, lr=0.001):    
     # 词表
-    from utils import vocab
-
-    # 模型实例化
-    from transformer import Transformer
-    transformer = Transformer(encoder, decoder)
-    model = transformer
+    from utils import chinese_vocab
     
     # 损失函数和优化器
     # ignore_index 指定的标签会被忽略，这意味着模型在计算损失和梯度时不会考虑这些标签。这对于处理包含填充（padding）标记的批次非常重要，因为填充标记并不是实际的标签，只是为了使序列对齐。
@@ -104,7 +99,7 @@ def train(encoder, decoder, num_epochs=10, lr=0.001):
         # 编码器输入掩码
         # src_mask 是为了屏蔽 <pad> 或者填充标记（通常是 0），以防止这些填充位置对注意力计算产生影响。
         # 这种方式仅屏蔽填充标记，允许模型处理 <Unknown>，并学习如何对其进行预测或推理
-        src_mask = (encoder_inputs != vocab["<PAD>"]).unsqueeze(1).unsqueeze(2)   # [batch_size, 1, 1, chinese_seq_len], 运算时会被广播成 [batch_size, n_head, chinese_seq_len, chinese_seq_len]
+        src_mask = (encoder_inputs != chinese_vocab["<PAD>"]).unsqueeze(1).unsqueeze(2)   # [batch_size, 1, 1, chinese_seq_len], 运算时会被广播成 [batch_size, n_head, chinese_seq_len, chinese_seq_len]
 
         # 前向传播
         output = model(encoder_inputs, decoder_inputs, src_mask, tgt_mask)
@@ -126,49 +121,56 @@ def train(encoder, decoder, num_epochs=10, lr=0.001):
         print(f"Epoch {epoch+1}, Loss: {loss.item()}")
 
 
-# def inference(model, sentence, chinese_vocab, english_vocab, max_len=50):
-#     model.eval()  # 切换到推理模式，禁用 dropout
+def inference(model, sentence, chinese_vocab, english_vocab, max_len=50):
+    model.eval()  # 切换到推理模式，禁用 dropout
     
-#     # 将输入的中文句子编码为 token 序列
-#     encoder_input = prepare_encoder_input([sentence], chinese_vocab)  # [1, seq_len]
+    # 将输入的中文句子编码为 token 序列
+    encoder_input, chinese_seq_len = prepare_encoder_input([sentence], chinese_vocab)  # [1, seq_len]
     
-#     # 初始化解码器输入：以 <START> 开始
-#     decoder_input = torch.tensor([[english_vocab['<START>']]], dtype=torch.long)  # [1, 1]
+    # 初始化解码器输入：以 <START> 开始
+    decoder_input = torch.tensor([[english_vocab['<START>']]], dtype=torch.long)  # [1, 1]
     
-#     # 编码器输入掩码
-#     src_mask = (encoder_input != chinese_vocab['<PAD>']).unsqueeze(1).unsqueeze(2)  # [1, 1, 1, seq_len]
+    # 编码器输入掩码
+    src_mask = (encoder_input != chinese_vocab['<PAD>']).unsqueeze(1).unsqueeze(2)  # [1, 1, 1, seq_len]
     
-#     output_sentence = []
+    output_sentence = []
     
-#     for i in range(max_len):
-#         # 生成解码器的 tgt_mask
-#         tgt_mask = torch.tril(torch.ones(i+1, i+1)).unsqueeze(0).unsqueeze(0)  # [1, 1, i+1, i+1]
+    for i in range(max_len):
+        # 生成解码器的 tgt_mask
+        tgt_mask = torch.tril(torch.ones(i+1, i+1)).unsqueeze(0).unsqueeze(0)  # [1, 1, i+1, i+1]   # [batch_size, n_head, english_seq_len, english_seq_len]
         
-#         # 进行前向传播，获取输出
-#         output = model(encoder_input, decoder_input, src_mask, tgt_mask)  # [1, i+1, vocab_size]
+        # 进行前向传播，获取输出
+        output = model(encoder_input, decoder_input, src_mask, tgt_mask)  # [1, i+1, vocab_size]    # [batch_size, english_seq_len, vocab_size]
         
-#         # 取最后一个时间步的输出，并通过 softmax 选择概率最大的 token
-#         next_token = output[:, -1, :].argmax(dim=-1).item()  # [1]
+        # 取最后一个时间步的输出，并通过 softmax 选择概率最大的 token
+        # output[:, -1, :]      # [1, vocab_size]
+        # output[:, -1, :].argmax(dim=-1)  # [1], argmax(dim=-1) 的作用是沿着 vocab_size 维度（即词汇表的所有可能词）找到概率最大的那个词的索引。
+        # item() 将张量转换为一个 Python 标量值
+        next_token = output[:, -1, :].argmax(dim=-1).item()  # [1]
         
-#         # 将生成的 token 添加到输出句子中
-#         output_sentence.append(next_token)
+        # 将生成的 token 添加到输出句子中
+        output_sentence.append(next_token)
         
-#         # 如果生成了 <END> 标记，则停止
-#         if next_token == english_vocab['<END>']:
-#             break
+        # # 如果生成了 <END> 标记，则停止
+        # if next_token == english_vocab['<END>']:
+        #     break
         
-#         # 更新 decoder_input，将新生成的 token 加入
-#         decoder_input = torch.cat([decoder_input, torch.tensor([[next_token]], dtype=torch.long)], dim=1)
+        # 如果生成了 <END> 标记，则停止
+        if next_token == english_vocab['<END>']:
+            print("我是在自回归过程中打印的语句!")
+            break
+        
+        # 更新 decoder_input，将新生成的 token 加入
+        decoder_input = torch.cat([decoder_input, torch.tensor([[next_token]], dtype=torch.long)], dim=-1)  # [1, english_seq_len + 1]
     
-#     # 将生成的 token 序列转换为单词
-#     translated_sentence = [english_vocab[token] for token in output_sentence]
+    # 反转词汇表：索引 -> 单词
+    english_vocab = {idx: word for word, idx in english_vocab.items()}
+    # 将生成的 token 序列转换为单词
+    translated_sentence:list[str] = [english_vocab.get(token, "<UNKNOWN>") for token in output_sentence]
     
-#     return ' '.join(translated_sentence)
+    return ' '.join(translated_sentence)
 
-# # 使用推理函数
-# input_sentence = "我 爱 编程"
-# output = inference(model, input_sentence, chinese_vocab, english_vocab)
-# print("翻译结果: ", output)
+
 
 
 if __name__ == '__main__':
@@ -205,10 +207,16 @@ if __name__ == '__main__':
     lr = 0.001      # 学习率
     
     # 模型实例化
-    from transformer import Encoder, Decoder
+    from transformer import Encoder, Decoder, Transformer
     encoder = Encoder(d_model, vocab_size, max_len, n_head, d_ff, encoder_layer_nums, dropout)
     decoder = Decoder(d_model, vocab_size, max_len, n_head, d_ff, decoder_layer_nums, dropout)  
+    model = Transformer(encoder, decoder)
     
-    train(encoder, decoder, num_epochs, lr)
-
+    # 训练
+    train(model, num_epochs, lr)
+    
+    #推理
+    input_sentence = "我 爱 编程"
+    output = inference(model, input_sentence, chinese_vocab, english_vocab)
+    print("翻译结果: ", output)
     
