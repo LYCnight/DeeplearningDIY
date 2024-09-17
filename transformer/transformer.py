@@ -251,10 +251,12 @@ class EncoderLayer(nn.Module):
 
 # 完整 Encoder 
 class Encoder(nn.Module):
-    def __init__(self, d_model, n_heads, d_ff, num_layers, dropout=0.1):
+    def __init__(self, d_model, vocab_size, max_len, n_heads, d_ff, num_layers, dropout=0.1):
         """
         整体编码器
         - d_model: 模型维度
+        - vocab_size: 词汇表大小
+        - max_len: 位置编码支持的序列最大长度
         - n_heads: 多头注意力的头数
         - d_ff: 前馈网络隐藏层大小
         - num_layers: 编码器层的堆叠数
@@ -262,6 +264,9 @@ class Encoder(nn.Module):
         """
         super(Encoder, self).__init__()
         
+        # 
+        self.embedding_layer = Embeddings(vocab_size, d_model)
+        self.positional_encoding_layer = PositionalEncoding(d_model, max_len)
         
         # 堆叠多个 EncoderLayer
         self.layers = nn.ModuleList([EncoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(num_layers)])
@@ -271,6 +276,10 @@ class Encoder(nn.Module):
         - x: 输入张量 [batch_size, seq_len]
         - 返回: 编码器的输出 [batch_size, seq_len, d_model]
         """        
+        
+        x = self.embedding_layer(x)  # [batch_size, seq_len, d_model]
+        x = self.positional_encoding_layer(x)  # [batch_size, seq_len, d_model]
+        
         # 通过多个 EncoderLayer 处理
         for layer in self.layers:
             x = layer(x)
@@ -327,19 +336,30 @@ class DecoderLayer(nn.Module):
 
 # 完整 Decoder
 class Decoder(nn.Module):
-    def __init__(self, d_model, n_heads, d_ff, n_layers, dropout=0.1):
+    def __init__(self, d_model, vocab_size, max_len, n_heads, d_ff, n_layers, dropout=0.1):
         """
         解码器
         - d_model: 模型维度
         - n_heads: 多头注意力的头数
+        - vocab_size: 词汇表大小
+        - max_len: 位置编码支持的序列最大长度
         - d_ff: 前馈网络的隐藏层大小
         - n_layers: 解码器层数
         - dropout: dropout 率
         """
         super(Decoder, self).__init__()
+        
+        # 嵌入层和位置编码层
+        self.embedding_layer = Embeddings(vocab_size, d_model)
+        self.positional_encoding_layer = PositionalEncoding(d_model, max_len)
+        
+        #
         self.layers = nn.ModuleList([
             DecoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)
         ])
+        
+        # 最后一层的全连接层
+        self.fc_out = nn.Linear(d_model, vocab_size)
 
     def forward(self, tgt_seq, enc_output, src_mask=None, tgt_mask=None):
         """
@@ -350,10 +370,17 @@ class Decoder(nn.Module):
         - 返回：解码器的输出 [batch_size, tgt_seq_len, d_model]
         """
         x = tgt_seq
+        
+        # embedding 层和位置编码层
+        x = self.embedding_layer(x)  # [batch_size, seq_len, d_model]
+        x = self.positional_encoding_layer(x)  # [batch_size, seq_len, d_model]
 
         # 逐层处理
         for layer in self.layers:
             x = layer(x, enc_output, src_mask, tgt_mask)
+            
+        # 全连接,映射回词表维度
+        x = self.fc_out(x)
 
         return x
 
@@ -388,59 +415,45 @@ if __name__ == '__main__':
     from utils import vocab
 
     # 模型实例化
-    embedding_layer = Embeddings(vocab_size, d_model)
-    positional_encoding_layer = PositionalEncoding(d_model, max_len)
-    encoder = Encoder(d_model, n_head, d_ff, encoder_layer_nums, dropout)
-    decoder = Decoder(d_model, n_head, d_ff, decoder_layer_nums, dropout)  
-    linear = nn.Linear(d_model, vocab_size)
+    encoder = Encoder(d_model, vocab_size, max_len, n_head, d_ff, encoder_layer_nums, dropout)
+    decoder = Decoder(d_model, vocab_size, max_len, n_head, d_ff, decoder_layer_nums, dropout)  
     softmax = nn.Softmax(dim=-1)
 
     # 1. Encoder -------------------------------
     # 原始字符输入
-    encoder_sequences = ["today hello world", "hello world I love U and She", "我 爱 你 !"]
+    encoder_sequences = ["today hello world", "hello world I love U and She", "我 爱 你 !"]     # [batch_size]
     
-    # 在这里写一个函数,转为 encoder_original_input
+    # 在这里写一个函数,将字符序列转为 digit序列 (将字符映射为 token编号)
     from utils import prepare_encoder_input
-    encoder_original_input, seq_len = prepare_encoder_input(encoder_sequences, vocab, seq_len)    # [batch_size, seq_len]
-    print(encoder_original_input)
+    encoder_digit_input, seq_len = prepare_encoder_input(encoder_sequences, vocab, seq_len)    # [batch_size, seq_len]
+    print(encoder_digit_input)  # [batch_size, seq_len]
     # seq_len 其实是 encoder_sequences 中最长的序列长度,是计算得到的
-    
-    # 编码器输入(未经过 Embedding 和 Positional Encoding)
-    # encoder_original_input = torch.randint(0, vocab_size, (batch_size, seq_len))     # [batch_size, seq_len]
-    # Embedding + Positional Encoding
-    embedded_enc = embedding_layer(encoder_original_input)
-    encoder_input = positional_encoding_layer(embedded_enc)
-    print("encoder_input:")
-    print(encoder_input.size())  # [batch_size, seq_len, d_model]
     # encode
-    encoder_output = encoder(encoder_input)
+    encoder_output = encoder(encoder_digit_input)
     print("Encoder Output:")
     print(encoder_output.size())  # [batch_size, seq_len, d_model]
-    
+       
     
     # 2. Decoder -------------------------------
     # 解码器输入(未经过 Embedding 和 Positional Encoding)
-    decoder_original_input = torch.randint(0, vocab_size, (batch_size, seq_len))  # [batch_size, seq_len]
-    # embedding & positional encoding
-    embedded_dec = embedding_layer(decoder_original_input)
-    decoder_input = positional_encoding_layer(embedded_dec)
-    print("decoder_input:")
-    print(decoder_input.size())  # [batch_size, seq_len, d_model]
+    decoder_digit_input = torch.randint(0, vocab_size, (batch_size, seq_len))  # [batch_size, seq_len]
     # 解码器输入掩码
     # 防止解码器在预测下一个词时看到当前词的未来词。
     tgt_mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len], 运算时会被广播成 [batch_size, n_head, seq_len, seq_len]
     # 编码器输入掩码
     # src_mask 是为了屏蔽 <pad> 或者填充标记（通常是 0），以防止这些填充位置对注意力计算产生影响。
     # 这种方式仅屏蔽填充标记，允许模型处理 <Unknown>，并学习如何对其进行预测或推理
-    src_mask = (encoder_original_input != vocab["<PAD>"]).unsqueeze(1).unsqueeze(2)   # [batch_size, 1, 1, seq_len], 运算时会被广播成 [batch_size, n_head, seq_len, seq_len]
+    src_mask = (encoder_digit_input != vocab["<PAD>"]).unsqueeze(1).unsqueeze(2)   # [batch_size, 1, 1, seq_len], 运算时会被广播成 [batch_size, n_head, seq_len, seq_len]
     # decode
-    decoder_output = decoder(decoder_input, encoder_output, src_mask=src_mask, tgt_mask=tgt_mask)
+    decoder_output = decoder(decoder_digit_input, encoder_output, src_mask=src_mask, tgt_mask=tgt_mask)
     print("Decoder Output:")
-    print(decoder_output.size())  # [batch_size, seq_len, d_model]
+    print(decoder_output.size())  # [batch_size, seq_len, vocab_size]
+    
     
     # 3. predict -------------------------------
-    linear_output = linear(decoder_output)
-    softmax_output = softmax(linear_output)
+    softmax_output = softmax(decoder_output)     
+    print(softmax_output.size())  # [batch_size, seq_len, vocab_size]
+
     
     from utils import predict_words
     #  定义反向词汇表 (for word prediction)
