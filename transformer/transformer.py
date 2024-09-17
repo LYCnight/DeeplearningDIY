@@ -134,26 +134,29 @@ class MultiHeadAttention(nn.Module):
         return output, attn_weights
     
     def cross_attention(self, q, k, v, mask=None):  
-        batch_size, seq_len, _ = q.size()   # [batch_size, seq_len, d_model]
+        batch_size = q.shape[0]   # q.size() : [batch_size, seq_len, d_model]
+        q_seq_len, k_seq_len, v_seq_len = q.shape[1], k.shape[1], v.shape[1]
+        
+        assert k_seq_len == v_seq_len, "Key sequence length must be equal to Value sequence length"
 
         # 线性变换并重塑为多头格式: [batch_size, seq_len, d_model] -> [batch_size, n_heads, seq_len, d_k]
-        query = self.q_linear(q).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)  # [batch_size, n_heads, seq_len, d_k]
-        key = self.k_linear(k).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)    # [batch_size, n_heads, seq_len, d_k]
-        value = self.v_linear(v).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)  # [batch_size, n_heads, seq_len, d_k]
+        query = self.q_linear(q).view(batch_size, q_seq_len, self.n_heads, self.d_k).transpose(1, 2)  # [batch_size, n_heads, seq_len, d_k]
+        key = self.k_linear(k).view(batch_size, k_seq_len, self.n_heads, self.d_k).transpose(1, 2)    # [batch_size, n_heads, seq_len, d_k]
+        value = self.v_linear(v).view(batch_size, v_seq_len, self.n_heads, self.d_k).transpose(1, 2)  # [batch_size, n_heads, seq_len, d_k]
 
-        # 计算多头注意力: [batch_size, n_heads, seq_len, d_k] （并且将 mask 传递给 ScaledDotProductAttention）
+        # 计算多头注意力: [batch_size, n_heads, q_seq_len, d_k] （并且将 mask 传递给 ScaledDotProductAttention）
         attn_output, attn_weights = self.attention(query, key, value, mask)
-        # attn_output    # [batch_size, n_heads, seq_len, d_k]
-        # attn_weights   # [batch_size, n_heads, seq_len, seq_len]
+        # attn_output    # [batch_size, n_heads, q_seq_len, d_k]
+        # attn_weights   # [batch_size, n_heads, q_seq_len, k_seq_len]
 
-        # 将多头注意力的输出拼接回原始形状: [batch_size, seq_len, d_model]
-        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
-        # attn_output.transpose(1, 2) # [batch_size, seq_len, n_heads, d_k]
+        # 将多头注意力的输出拼接回原始形状: [batch_size, q_seq_len, d_model]
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, q_seq_len, self.d_model)
+        # attn_output.transpose(1, 2) # [batch_size, q_seq_len, n_heads, d_k]
 
         # 通过线性层恢复到 d_model 维度, 线性层帮助模型更好地整合多个头的注意力输出。
         output = self.out_linear(attn_output)   
-        # output :       [batch_size, seq_len, d_model]
-        # attn_weights : [batch_size, n_heads, seq_len, seq_len]
+        # output :       [batch_size, q_seq_len, d_model]
+        # attn_weights : [batch_size, n_heads, q_seq_len, seq_len]
         return output, attn_weights
 
 class LayerNorm(nn.Module):
@@ -391,9 +394,20 @@ class Transformer(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, src, tgt, src_mask, tgt_mask, memory_mask):
-        memory = self.encoder(src, src_mask)
-        output = self.decoder(tgt, memory, tgt_mask, memory_mask)
+    def forward(self, src, tgt, src_mask=None, tgt_mask=None):
+        '''
+        功能: Transformer 模型前向传播
+        - 注意:输入的序列为 digit 序列, 即: 数字代表 token 的编号
+        - 参数
+            - src: 源序列(encoder输入), [batch_size, src_seq_len]
+            - tgt: 目标序列(decoder输入), [batch_size, tgt_seq_len]
+            - src_mask: 用于编码器的输入 mask [batch_size, 1, 1, src_seq_len] （可选）
+            - tgt_mask: 用于解码器输入的掩码 [batch_size, 1, tgt_seq_len, tgt_seq_len] （可选）
+        - 返回：
+            - output：解码器的输出, [batch_size, tgt_seq_len, vocab_size]
+        '''
+        encoder_output = self.encoder(src)
+        output = self.decoder(tgt, encoder_output, src_mask, tgt_mask)
         return output
 
 
@@ -417,6 +431,7 @@ if __name__ == '__main__':
     # 模型实例化
     encoder = Encoder(d_model, vocab_size, max_len, n_head, d_ff, encoder_layer_nums, dropout)
     decoder = Decoder(d_model, vocab_size, max_len, n_head, d_ff, decoder_layer_nums, dropout)  
+    transformer = Transformer(encoder, decoder)
     softmax = nn.Softmax(dim=-1)
 
     # 1. Encoder -------------------------------
@@ -425,18 +440,14 @@ if __name__ == '__main__':
     
     # 在这里写一个函数,将字符序列转为 digit序列 (将字符映射为 token编号)
     from utils import prepare_encoder_input
+    # 编码器输入(未经过 Embedding 和 Positional Encoding)
     encoder_digit_input, seq_len = prepare_encoder_input(encoder_sequences, vocab, seq_len)    # [batch_size, seq_len]
+    # seq_len 是 计算 batch 中最长的序列长度得到的
     print(encoder_digit_input)  # [batch_size, seq_len]
-    # seq_len 其实是 encoder_sequences 中最长的序列长度,是计算得到的
-    # encode
-    encoder_output = encoder(encoder_digit_input)
-    print("Encoder Output:")
-    print(encoder_output.size())  # [batch_size, seq_len, d_model]
-       
     
-    # 2. Decoder -------------------------------
     # 解码器输入(未经过 Embedding 和 Positional Encoding)
     decoder_digit_input = torch.randint(0, vocab_size, (batch_size, seq_len))  # [batch_size, seq_len]
+    
     # 解码器输入掩码
     # 防止解码器在预测下一个词时看到当前词的未来词。
     tgt_mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len], 运算时会被广播成 [batch_size, n_head, seq_len, seq_len]
@@ -444,14 +455,15 @@ if __name__ == '__main__':
     # src_mask 是为了屏蔽 <pad> 或者填充标记（通常是 0），以防止这些填充位置对注意力计算产生影响。
     # 这种方式仅屏蔽填充标记，允许模型处理 <Unknown>，并学习如何对其进行预测或推理
     src_mask = (encoder_digit_input != vocab["<PAD>"]).unsqueeze(1).unsqueeze(2)   # [batch_size, 1, 1, seq_len], 运算时会被广播成 [batch_size, n_head, seq_len, seq_len]
-    # decode
-    decoder_output = decoder(decoder_digit_input, encoder_output, src_mask=src_mask, tgt_mask=tgt_mask)
-    print("Decoder Output:")
-    print(decoder_output.size())  # [batch_size, seq_len, vocab_size]
     
+    # 2. Transformer -------------------------------
+    output = transformer(encoder_digit_input, decoder_digit_input, src_mask, tgt_mask)
+    print("Output.size() (not sofmaxed): ")
+    print(output.size())   # [batch_size, seq_len, vocab_size]   
     
     # 3. predict -------------------------------
-    softmax_output = softmax(decoder_output)     
+    softmax_output = softmax(output)  
+    print("softmax_output.size():")   
     print(softmax_output.size())  # [batch_size, seq_len, vocab_size]
 
     

@@ -37,10 +37,16 @@ def pad_sequences(sequences, pad_value, max_len=None):
 
 def prepare_encoder_input(sequences:list[str], vocab:dict, seq_len:int=None):
     """
-    将文本序列处理为编码器的输入张量
-    - sequences: 文本序列列表
-    - vocab: 词汇表
-    - seq_len: 序列长度，如果为 None，则计算并使用最长的序列长度
+    将文本序列转换为编码器的输入张量，并将其标准化为相同长度。
+    
+    参数：
+    - sequences: 文本序列的列表，每个元素是一个字符串，代表一个句子。
+    - vocab: 词汇表，字典类型，键为词汇，值为该词汇在词汇表中的索引编号。
+    - seq_len: 序列的长度，如果为 None，函数将使用输入序列中的最长序列长度作为标准长度进行填充。
+    
+    返回：
+    - tensor_sequences: 转换后的序列张量，形状为 [batch_size, seq_len]，其中每个序列的长度为 seq_len。
+    - seq_len: 序列长度，如果未提供，则返回计算出的最长序列长度。
     """
     # 分词
     print("分词:")
