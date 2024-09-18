@@ -183,9 +183,6 @@ if __name__ == '__main__':
         ("世界 和平", "world peace"),
     ]
 
-
-    # -------------- 训练模型 --------------
-
     import torch
     import torch.nn as nn
     import torch.optim as optim
@@ -212,10 +209,10 @@ if __name__ == '__main__':
     decoder = Decoder(d_model, vocab_size, max_len, n_head, d_ff, decoder_layer_nums, dropout)  
     model = Transformer(encoder, decoder)
     
-    # 训练
+    # -------------- 训练 --------------
     train(model, num_epochs, lr)
     
-    #推理
+    # -------------- 推理 --------------
     input_sentence = "我 爱 编程"
     output = inference(model, input_sentence, chinese_vocab, english_vocab)
     print("翻译结果: ", output)
