@@ -1,0 +1,39 @@
+import torch
+import torch.nn as nn
+import math
+
+class atten(nn.Module):
+    def __init__(self, d_model, n_head):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head= n_head
+        self.d_head = d_model // n_head      
+        
+
+        self.Wq = nn.Linear(d_model, d_model)
+        self.Wk = nn.Linear(d_model, d_model)
+        self.Wv = nn.Linear(d_model, d_model)
+
+        self.fc_out = nn.Linear(d_model, d_model)
+
+
+    def forward(self, x):
+        # x: (B, L, d_model)
+        B, L, _ = x.shape
+
+        Q = self.Wq(x)  # (B,L,d_model)
+        K = self.Wk(x)
+        V = self.Wv(x)
+
+        Q = Q.view(B, L, self.n_head, self.d_head).transpose(1, 2)  # (B, n_head, L, d_head)
+        K = K.view(B, L, self.n_head, self.d_head).transpose(1, 2) 
+        V = V.view(B, L, self.n_head, self.d_head).transpose(1, 2) 
+
+        A = torch.softmax(torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_head), dim=-1) #(B, n_head, L, L)
+        out = torch.matmul(A, V).transpose(1, 2).contiguous().view(B, L, self.d_model)    # (B, L, d_model)
+
+        out = self.fc_out(out)
+
+        return out
+
+
