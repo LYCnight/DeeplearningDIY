@@ -1,16 +1,12 @@
 import torch
-import torch.nn as nn
-import pdb
 
+A = torch.tensor([[1., 2.],
+                  [3., 4.]])     # shape (2, 2)
 
-if __name__ == "__main__":
-    pdb.set_trace()
-    a = torch.arange(9).view(3,3)
-    # b = torch.arange(3)
-    b = torch.arange(3).unsqueeze(1)   # (3,1)
-    c = a + b
+B = torch.tensor([[0., 0.],
+                  [1., 1.],
+                  [2., 2.]])     # shape (3, 2)
 
+D = torch.cdist(A, B, p=2)   # 欧氏距离(Euclidean)
 
-
-
-
+print(D)

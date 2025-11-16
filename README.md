@@ -1,6 +1,7 @@
 ```
 conda create -n deepDIY python=3.10
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+conda activate deepDIY
 ```
 
 ```
