@@ -47,3 +47,16 @@ class MultiHeadAttention(nn.Module):
         out = self.fc_out(out)
         return out
 
+
+if __name__ == "__main__":
+    B = 2
+    L = 16
+    D = 32
+    n_head = 8
+    x = torch.randn(B, L, D)
+    Net = MultiHeadAtten(D, n_head)
+    out = Net(x)   
+    print(out.shape)  # torch.Size([2, 16, 32])
+
+
+

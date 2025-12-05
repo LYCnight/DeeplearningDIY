@@ -1,39 +1,47 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import math
 
-class atten(nn.Module):
+class MultiHeadAtten(nn.Module):
     def __init__(self, d_model, n_head):
         super().__init__()
         self.d_model = d_model
-        self.n_head= n_head
-        self.d_head = d_model // n_head      
-        
+        self.n_head = n_head
+        assert d_model % n_head == 0
+
+        self.d_head = d_model // n_head
 
         self.Wq = nn.Linear(d_model, d_model)
         self.Wk = nn.Linear(d_model, d_model)
         self.Wv = nn.Linear(d_model, d_model)
-
+    
         self.fc_out = nn.Linear(d_model, d_model)
 
 
     def forward(self, x):
-        # x: (B, L, d_model)
-        B, L, _ = x.shape
+        B, L, D = x.shape
+        # (B, L, D) → (B, L, n_head, d_head) → (B, n_head, L, d_head)
+        Q = self.Wq(x).view(B, L, self.n_head, self.d_head).transpose(1, 2)
+        K = self.Wk(x).view(B, L, self.n_head, self.d_head).transpose(1, 2)
+        V = self.Wv(x).view(B, L, self.n_head, self.d_head).transpose(1, 2)
 
-        Q = self.Wq(x)  # (B,L,d_model)
-        K = self.Wk(x)
-        V = self.Wv(x)
+        attn = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(self.d_head)
+        score = F.softmax(attn, dim=-1)  # (B, n_head, L, L)
 
-        Q = Q.view(B, L, self.n_head, self.d_head).transpose(1, 2)  # (B, n_head, L, d_head)
-        K = K.view(B, L, self.n_head, self.d_head).transpose(1, 2) 
-        V = V.view(B, L, self.n_head, self.d_head).transpose(1, 2) 
+        out = torch.matmul(score, V)   # (B, n_head, L, d_head)
+        out.transpose(1,2).contiguous().view(B, L, -1)   # (B, L, d_model)
 
-        A = torch.softmax(torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_head), dim=-1) #(B, n_head, L, L)
-        out = torch.matmul(A, V).transpose(1, 2).contiguous().view(B, L, self.d_model)    # (B, L, d_model)
-
-        out = self.fc_out(out)
-
+        out = self.fc_out(x)
         return out
 
+if __name__ == "__main__":
+    B = 2
+    L = 16
+    D = 32
+    n_head = 8
+    x = torch.randn(B, L, D)
+    Net = MultiHeadAtten(D, n_head)
+    out = Net(x)   
+    print(out.shape)  # torch.Size([2, 16, 32])
 

@@ -13,5 +13,7 @@ git remote add origin https://github.com/LYCnight/DeeplearningDIY
 git pull origin main
 
 提交
+git add .
+git commit -m "new feature"
 git push -u origin main 
 ```
